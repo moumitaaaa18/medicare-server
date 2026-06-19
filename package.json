@@ -10,8 +10,10 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
+    "@better-auth/mongo-adapter": "^1.6.19",
+    "better-auth": "^1.6.19",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

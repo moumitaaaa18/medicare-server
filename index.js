@@ -26,8 +26,33 @@ async function run() {
     console.log("MongoDB Connected Successfully");
     const database = client.db("medicareDB");
 const doctorsCollection = database.collection("doctors");
+const usersCollection = database.collection("users");
 app.get("/doctors", async (req, res) => {
   const result = await doctorsCollection.find().toArray();
+  res.send(result);
+});
+app.post("/users", async (req, res) => {
+  const user = req.body;
+
+  const existingUser = await usersCollection.findOne({
+    email: user.email,
+  });
+
+  if (existingUser) {
+    return res.send({
+      message: "User already exists",
+    });
+  }
+
+  const newUser = {
+    ...user,
+    role: "patient",
+    status: "active",
+    createdAt: new Date(),
+  };
+
+  const result = await usersCollection.insertOne(newUser);
+
   res.send(result);
 });
 
