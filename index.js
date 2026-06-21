@@ -23,6 +23,7 @@ const database = client.db("medicareDB");
 const doctorsCollection = database.collection("doctors");
 const usersCollection = database.collection("users");
 const appointmentsCollection = database.collection("appointments");
+const reviewsCollection = database.collection("reviews");
 
 app.get("/", (req, res) => {
   res.send("MediCare Connect Server is Running");
@@ -51,6 +52,35 @@ app.post("/users", async (req, res) => {
 app.get("/users/:email", async (req, res) => {
   const user = await usersCollection.findOne({ email: req.params.email });
   res.send(user);
+});
+app.get("/seed-admin", async (req, res) => {
+  const admin = {
+    name: "Admin",
+    email: "admin@medicare.com",
+    role: "admin",
+    status: "active",
+    photo: "https://i.ibb.co/4pDNDk1/avatar.png",
+    createdAt: new Date(),
+  };
+
+  const existingAdmin = await usersCollection.findOne({ email: admin.email });
+
+  if (existingAdmin) {
+    return res.send({
+      message: "Admin already exists",
+      email: "admin@medicare.com",
+      password: "Admin@123",
+    });
+  }
+
+  const result = await usersCollection.insertOne(admin);
+
+  res.send({
+    message: "Admin user inserted",
+    insertedId: result.insertedId,
+    email: "admin@medicare.com",
+    password: "Admin@123",
+  });
 });
 
 /* DOCTORS */
@@ -329,6 +359,43 @@ app.patch("/appointments/:id", async (req, res) => {
 
 app.delete("/appointments/:id", async (req, res) => {
   const result = await appointmentsCollection.deleteOne({
+    _id: new ObjectId(req.params.id),
+  });
+
+  res.send(result);
+});
+app.get("/reviews/:email", async (req, res) => {
+  const result = await reviewsCollection
+    .find({ patientEmail: req.params.email })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  res.send(result);
+});
+
+app.post("/reviews", async (req, res) => {
+  const review = req.body;
+
+  const newReview = {
+    ...review,
+    createdAt: new Date(),
+  };
+
+  const result = await reviewsCollection.insertOne(newReview);
+  res.send(result);
+});
+
+app.patch("/reviews/:id", async (req, res) => {
+  const result = await reviewsCollection.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: req.body }
+  );
+
+  res.send(result);
+});
+
+app.delete("/reviews/:id", async (req, res) => {
+  const result = await reviewsCollection.deleteOne({
     _id: new ObjectId(req.params.id),
   });
 
