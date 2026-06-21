@@ -11,7 +11,8 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:5174", "http://localhost:5176"],
+
+  origin: ["http://localhost:5173", "http://localhost:5174", "http://localhost:5176", "http://localhost:5175"],
   credentials: true,
 }));
 
@@ -131,7 +132,7 @@ app.get("/reset-doctors", async (req, res) => {
       profileImage: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=600&auto=format&fit=crop",
       availableDays: ["Monday", "Wednesday", "Friday"],
       availableSlots: ["4:00 PM", "6:00 PM", "8:00 PM"],
-      verificationStatus: "verified",
+      verificationStatus: "Specialist",
       averageRating: 4.7,
       createdAt: new Date(),
     },
@@ -145,7 +146,7 @@ app.get("/reset-doctors", async (req, res) => {
       profileImage: "https://images.unsplash.com/photo-1594824476967-48c8b964273f?w=600&auto=format&fit=crop",
       availableDays: ["Saturday", "Monday", "Wednesday"],
       availableSlots: ["11:00 AM", "1:00 PM", "3:00 PM"],
-      verificationStatus: "verified",
+      verificationStatus: "Certified Specialist",
       averageRating: 4.8,
       createdAt: new Date(),
     },
@@ -173,7 +174,7 @@ app.get("/reset-doctors", async (req, res) => {
       profileImage: "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=600&auto=format&fit=crop",
       availableDays: ["Tuesday", "Thursday", "Saturday"],
       availableSlots: ["9:00 AM", "11:00 AM", "1:00 PM"],
-      verificationStatus: "verified",
+      verificationStatus: "Fresher",
       averageRating: 4.5,
       createdAt: new Date(),
     },
@@ -314,6 +315,22 @@ app.get("/appointments/:email", async (req, res) => {
     .find({ patientEmail: req.params.email })
     .sort({ createdAt: -1 })
     .toArray();
+
+  res.send(result);
+});
+app.patch("/appointments/:id", async (req, res) => {
+  const result = await appointmentsCollection.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: req.body }
+  );
+
+  res.send(result);
+});
+
+app.delete("/appointments/:id", async (req, res) => {
+  const result = await appointmentsCollection.deleteOne({
+    _id: new ObjectId(req.params.id),
+  });
 
   res.send(result);
 });
