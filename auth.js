@@ -24,7 +24,8 @@ export const auth = betterAuth({
 
   baseURL: "http://localhost:5000",
 
-  trustedOrigins: ["http://localhost:5173", "http://localhost:5176"],
+
+  trustedOrigins: ["http://localhost:5173", "http://localhost:5176","http://localhost:5174"],
 
   emailAndPassword: {
     enabled: true,
