@@ -430,6 +430,31 @@ app.delete("/reviews/:id", async (req, res) => {
 
   res.send(result);
 });
+/* PRESCRIPTIONS */
+const prescriptionsCollection = database.collection("prescriptions");
+
+app.post("/prescriptions", async (req, res) => {
+  const prescription = req.body;
+
+  const newPrescription = {
+    ...prescription,
+    createdAt: new Date(),
+  };
+
+  const result = await prescriptionsCollection.insertOne(newPrescription);
+  res.send(result);
+});
+
+app.get("/prescriptions/:email", async (req, res) => {
+  const email = req.params.email;
+
+  const result = await prescriptionsCollection
+    .find({ patientEmail: email })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  res.send(result);
+});
 
 /* DASHBOARD STATS */
 app.get("/dashboard-stats", async (req, res) => {
