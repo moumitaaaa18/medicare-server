@@ -48,6 +48,18 @@ app.post("/users", async (req, res) => {
   const result = await usersCollection.insertOne(newUser);
   res.send(result);
 });
+app.get("/users", async (req, res) => {
+  const result = await usersCollection.find().sort({ createdAt: -1 }).toArray();
+  res.send(result);
+});
+
+app.patch("/users/:id", async (req, res) => {
+  const result = await usersCollection.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: req.body }
+  );
+  res.send(result);
+});
 
 app.get("/users/:email", async (req, res) => {
   const user = await usersCollection.findOne({ email: req.params.email });
@@ -80,6 +92,23 @@ app.get("/seed-admin", async (req, res) => {
     insertedId: result.insertedId,
     email: "admin@medicare.com",
     password: "Admin@123",
+  });
+});
+app.get("/make-doctor/:email", async (req, res) => {
+  const result = await usersCollection.updateOne(
+    { email: req.params.email },
+    {
+      $set: {
+        role: "doctor",
+        status: "active",
+        verificationStatus: "pending",
+      },
+    }
+  );
+
+  res.send({
+    message: "User role updated to doctor",
+    modifiedCount: result.modifiedCount,
   });
 });
 
