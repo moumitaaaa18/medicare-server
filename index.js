@@ -24,6 +24,7 @@ const doctorsCollection = database.collection("doctors");
 const usersCollection = database.collection("users");
 const appointmentsCollection = database.collection("appointments");
 const reviewsCollection = database.collection("reviews");
+const paymentsCollection = database.collection("payments");
 
 app.get("/", (req, res) => {
   res.send("MediCare Connect Server is Running");
@@ -427,6 +428,35 @@ app.delete("/reviews/:id", async (req, res) => {
   const result = await reviewsCollection.deleteOne({
     _id: new ObjectId(req.params.id),
   });
+
+  res.send(result);
+});
+app.post("/payments", async (req, res) => {
+  const payment = req.body;
+
+  const newPayment = {
+    ...payment,
+    paymentDate: new Date(),
+  };
+
+  const result = await paymentsCollection.insertOne(newPayment);
+  res.send(result);
+});
+
+app.get("/payments", async (req, res) => {
+  const result = await paymentsCollection
+    .find()
+    .sort({ paymentDate: -1 })
+    .toArray();
+
+  res.send(result);
+});
+
+app.get("/payments/:email", async (req, res) => {
+  const result = await paymentsCollection
+    .find({ patientEmail: req.params.email })
+    .sort({ paymentDate: -1 })
+    .toArray();
 
   res.send(result);
 });
