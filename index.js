@@ -4,11 +4,13 @@ import dotenv from "dotenv";
 import { ObjectId } from "mongodb";
 import { toNodeHandler } from "better-auth/node";
 import { auth, client } from "./auth.js";
+import Stripe from "stripe";
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 5000;
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 app.use(cors({
 
@@ -24,6 +26,7 @@ const doctorsCollection = database.collection("doctors");
 const usersCollection = database.collection("users");
 const appointmentsCollection = database.collection("appointments");
 const reviewsCollection = database.collection("reviews");
+
 const paymentsCollection = database.collection("payments");
 
 app.get("/", (req, res) => {
@@ -485,6 +488,130 @@ app.get("/prescriptions/:email", async (req, res) => {
 
   res.send(result);
 });
+/* PAYMENTS */
+app.post("/create-payment-session", async (req, res) => {
+  try {
+    const { appointmentId } = req.body;
+
+    const appointment = await appointmentsCollection.findOne({
+      _id: new ObjectId(appointmentId),
+    });
+
+    if (!appointment) {
+      return res.status(404).send({ message: "Appointment not found" });
+    }
+
+    const amount = Number(appointment.consultationFee || appointment.fee || 0);
+
+    if (!amount || amount <= 0) {
+      return res.status(400).send({ message: "Invalid payment amount" });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "payment",
+
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `Appointment with ${appointment.doctorName}`,
+            },
+            unit_amount: amount * 100,
+          },
+          quantity: 1,
+        },
+      ],
+
+      success_url: `${process.env.CLIENT_URL}/payment-success?appointmentId=${appointmentId}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.CLIENT_URL}/dashboard`,
+    });
+
+    res.send({ url: session.url });
+  } catch (error) {
+    console.log("Stripe session error:", error);
+    res.status(500).send({ message: "Payment session failed" });
+  }
+});
+
+app.post("/confirm-payment", async (req, res) => {
+  try {
+    const { appointmentId, sessionId } = req.body;
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    if (session.payment_status !== "paid") {
+      return res.status(400).send({ message: "Payment not completed" });
+    }
+
+    const appointment = await appointmentsCollection.findOne({
+      _id: new ObjectId(appointmentId),
+    });
+
+    if (!appointment) {
+      return res.status(404).send({ message: "Appointment not found" });
+    }
+
+    const existingPayment = await paymentsCollection.findOne({
+      transactionId: session.payment_intent,
+    });
+
+    if (existingPayment) {
+      return res.send({ message: "Payment already saved" });
+    }
+
+    const paymentInfo = {
+      appointmentId,
+      patientEmail: appointment.patientEmail,
+      patientName: appointment.patientName,
+      doctorEmail: appointment.doctorEmail || "",
+      doctorName: appointment.doctorName,
+      amount: Number(appointment.consultationFee || appointment.fee || 0),
+      transactionId: session.payment_intent,
+      paymentStatus: "paid",
+      paymentDate: new Date(),
+    };
+
+    await paymentsCollection.insertOne(paymentInfo);
+
+    await appointmentsCollection.updateOne(
+      { _id: new ObjectId(appointmentId) },
+      {
+        $set: {
+          paymentStatus: "paid",
+          appointmentStatus: "pending",
+        },
+      }
+    );
+
+    res.send({
+      message: "Payment confirmed",
+      transactionId: session.payment_intent,
+    });
+  } catch (error) {
+    console.log("Confirm payment error:", error);
+    res.status(500).send({ message: "Payment confirmation failed" });
+  }
+});
+
+app.get("/payments", async (req, res) => {
+  const result = await paymentsCollection
+    .find()
+    .sort({ paymentDate: -1 })
+    .toArray();
+
+  res.send(result);
+});
+
+app.get("/payments/:email", async (req, res) => {
+  const result = await paymentsCollection
+    .find({ patientEmail: req.params.email })
+    .sort({ paymentDate: -1 })
+    .toArray();
+
+  res.send(result);
+});
 
 /* DASHBOARD STATS */
 app.get("/dashboard-stats", async (req, res) => {
@@ -500,7 +627,7 @@ app.get("/dashboard-stats", async (req, res) => {
     totalPatients,
     totalAdmins,
     totalAppointments,
-    totalPayments: 0,
+    totalPayments,
   });
 });
 
