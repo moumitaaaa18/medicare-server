@@ -32,6 +32,27 @@ const paymentsCollection = database.collection("payments");
 app.get("/", (req, res) => {
   res.send("MediCare Connect Server is Running");
 });
+app.post("/create-payment-intent", async (req, res) => {
+  try {
+    const { fee } = req.body;
+
+    const amount = parseInt(fee * 100);
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount,
+      currency: "usd",
+      payment_method_types: ["card"],
+    });
+
+    res.send({
+      clientSecret: paymentIntent.client_secret,
+    });
+  } catch (error) {
+    res.status(500).send({
+      error: error.message,
+    });
+  }
+});
 
 /* USERS */
 app.post("/users", async (req, res) => {
@@ -607,6 +628,14 @@ app.get("/payments", async (req, res) => {
 app.get("/payments/:email", async (req, res) => {
   const result = await paymentsCollection
     .find({ patientEmail: req.params.email })
+    .sort({ paymentDate: -1 })
+    .toArray();
+
+  res.send(result);
+});
+app.get("/payments", async (req, res) => {
+  const result = await paymentsCollection
+    .find()
     .sort({ paymentDate: -1 })
     .toArray();
 

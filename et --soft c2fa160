@@ -1,0 +1,15 @@
+[33maa8dc79[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m remove secret files
+[33m1bcb764[m  server upgrade
+[33maef52e0[m  stripe install
+[33mc2fa160[m[33m ([m[1;31morigin/main[m[33m)[m  stripe selected
+[33m0f3e334[m  payment link added
+[33me8b4bb1[m  prescription process maange
+[33m96f1ca3[m  index update to verify dr
+[33m16a5a4c[m  admin panel updated
+[33m362ea0b[m patient dashboard creayed
+[33mcf12d89[m  create dynamic
+[33m29abeeb[m  page going dynamic
+[33md9b1c5a[m  appomutment slot page
+[33ma9cea10[m  routes separeting
+[33ma12630b[m  new file add
+[33me2b5b8a[m first commit
