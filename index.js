@@ -5,6 +5,7 @@ import { ObjectId } from "mongodb";
 import { toNodeHandler } from "better-auth/node";
 import { auth, client } from "./auth.js";
 import Stripe from "stripe";
+import jwt from "jsonwebtoken";
 
 dotenv.config();
 
@@ -12,11 +13,17 @@ const app = express();
 const port = process.env.PORT || 5000;
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-app.use(cors({
-
-  origin: ["http://localhost:5173", "http://localhost:5174", "http://localhost:5176", "http://localhost:5175"],
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "http://localhost:5175",
+      "http://localhost:5176",
+    ],
+    credentials: true,
+  })
+);
 
 app.all("/api/auth/*splat", toNodeHandler(auth));
 app.use(express.json());
@@ -26,17 +33,54 @@ const doctorsCollection = database.collection("doctors");
 const usersCollection = database.collection("users");
 const appointmentsCollection = database.collection("appointments");
 const reviewsCollection = database.collection("reviews");
-
 const paymentsCollection = database.collection("payments");
+const prescriptionsCollection = database.collection("prescriptions");
 
 app.get("/", (req, res) => {
+
   res.send("MediCare Connect Server is Running");
 });
+/* JWT */
+app.post("/jwt", async (req, res) => {
+  const user = req.body;
+
+  const token = jwt.sign(
+    { email: user.email },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+
+  res.send({ token });
+});
+
+const verifyJWT = (req, res, next) => {
+  const authorization = req.headers.authorization;
+
+  if (!authorization) {
+    return res.status(401).send({ message: "Unauthorized access" });
+  }
+
+  const token = authorization.split(" ")[1];
+
+  jwt.verify(token, process.env.JWT_SECRET, (error, decoded) => {
+    if (error) {
+      return res.status(403).send({ message: "Forbidden access" });
+    }
+
+    req.decoded = decoded;
+    next();
+  });
+};
+
+/* PAYMENT INTENT */
 app.post("/create-payment-intent", async (req, res) => {
   try {
     const { fee } = req.body;
+    const amount = parseInt(Number(fee) * 100);
 
-    const amount = parseInt(fee * 100);
+    if (!amount || amount <= 0) {
+      return res.status(400).send({ message: "Invalid fee amount" });
+    }
 
     const paymentIntent = await stripe.paymentIntents.create({
       amount,
@@ -56,26 +100,37 @@ app.post("/create-payment-intent", async (req, res) => {
 
 /* USERS */
 app.post("/users", async (req, res) => {
-  const user = req.body;
-  const existingUser = await usersCollection.findOne({ email: user.email });
+  try {
+    const user = req.body;
+    const existingUser = await usersCollection.findOne({ email: user.email });
 
-  if (existingUser) {
-    return res.send({ message: "User already exists" });
+    if (existingUser) {
+      return res.send({ message: "User already exists" });
+    }
+
+    const newUser = {
+      ...user,
+      role: user.role || "patient",
+      status: "active",
+      verificationStatus: user.role === "doctor" ? "pending" : "verified",
+      createdAt: new Date(),
+    };
+
+    const result = await usersCollection.insertOne(newUser);
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to create user" });
   }
-
-  const newUser = {
-    ...user,
-    role: user.role || "patient",
-    status: "active",
-    createdAt: new Date(),
-  };
-
-  const result = await usersCollection.insertOne(newUser);
-  res.send(result);
 });
-app.get("/users", async (req, res) => {
+
+app.get("/users",verifyJWT, async (req, res) => {
   const result = await usersCollection.find().sort({ createdAt: -1 }).toArray();
   res.send(result);
+});
+
+app.get("/users/:email", async (req, res) => {
+  const user = await usersCollection.findOne({ email: req.params.email });
+  res.send(user);
 });
 
 app.patch("/users/:id", async (req, res) => {
@@ -86,16 +141,13 @@ app.patch("/users/:id", async (req, res) => {
   res.send(result);
 });
 
-app.get("/users/:email", async (req, res) => {
-  const user = await usersCollection.findOne({ email: req.params.email });
-  res.send(user);
-});
 app.get("/seed-admin", async (req, res) => {
   const admin = {
     name: "Admin",
     email: "admin@medicare.com",
     role: "admin",
     status: "active",
+    verificationStatus: "verified",
     photo: "https://i.ibb.co/4pDNDk1/avatar.png",
     createdAt: new Date(),
   };
@@ -119,6 +171,7 @@ app.get("/seed-admin", async (req, res) => {
     password: "Admin@123",
   });
 });
+
 app.get("/make-doctor/:email", async (req, res) => {
   const result = await usersCollection.updateOne(
     { email: req.params.email },
@@ -188,204 +241,26 @@ app.get("/doctors/:id", async (req, res) => {
   res.send(doctor);
 });
 
-app.get("/reset-doctors", async (req, res) => {
-  await doctorsCollection.deleteMany({});
-
-  const doctors = [
-    {
-      doctorName: "Dr. Sam Rene",
-      specialization: "Cardiologist",
-      qualifications: "MBBS, FCPS",
-      experience: 10,
-      consultationFee: 500,
-      hospitalName: "MediCare General Hospital",
-      profileImage: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=600&auto=format&fit=crop",
-      availableDays: ["Sunday", "Tuesday", "Thursday"],
-      availableSlots: ["10:00 AM", "12:00 PM", "2:00 PM"],
-      verificationStatus: "verified",
-      averageRating: 4.9,
-      createdAt: new Date(),
-    },
-    {
-      doctorName: "Dr. Tanvir Hasan",
-      specialization: "Neurologist",
-      qualifications: "MBBS, MD",
-      experience: 9,
-      consultationFee: 700,
-      hospitalName: "City Care Hospital",
-      profileImage: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=600&auto=format&fit=crop",
-      availableDays: ["Monday", "Wednesday", "Friday"],
-      availableSlots: ["4:00 PM", "6:00 PM", "8:00 PM"],
-      verificationStatus: "Specialist",
-      averageRating: 4.7,
-      createdAt: new Date(),
-    },
-    {
-      doctorName: "Dr. Faria",
-      specialization: "Dermatologist",
-      qualifications: "MBBS, DDV",
-      experience: 7,
-      consultationFee: 600,
-      hospitalName: "Skin Care Hospital",
-      profileImage: "https://images.unsplash.com/photo-1594824476967-48c8b964273f?w=600&auto=format&fit=crop",
-      availableDays: ["Saturday", "Monday", "Wednesday"],
-      availableSlots: ["11:00 AM", "1:00 PM", "3:00 PM"],
-      verificationStatus: "Certified Specialist",
-      averageRating: 4.8,
-      createdAt: new Date(),
-    },
-    {
-      doctorName: "Dr. Ime D. Aris",
-      specialization: "Orthopedic",
-      qualifications: "MBBS, MS Ortho",
-      experience: 12,
-      consultationFee: 800,
-      hospitalName: "Bone Care Hospital",
-      profileImage: "https://images.unsplash.com/photo-1537368910025-700350fe46c7?w=600&auto=format&fit=crop",
-      availableDays: ["Sunday", "Monday", "Thursday"],
-      availableSlots: ["6:00 PM", "7:30 PM", "9:00 PM"],
-      verificationStatus: "verified",
-      averageRating: 4.6,
-      createdAt: new Date(),
-    },
-    {
-      doctorName: "Dr. Ahnaf Karim",
-      specialization: "Pediatrician",
-      qualifications: "MBBS, DCH",
-      experience: 8,
-      consultationFee: 650,
-      hospitalName: "Child Care Hospital",
-      profileImage: "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=600&auto=format&fit=crop",
-      availableDays: ["Tuesday", "Thursday", "Saturday"],
-      availableSlots: ["9:00 AM", "11:00 AM", "1:00 PM"],
-      verificationStatus: "Fresher",
-      averageRating: 4.5,
-      createdAt: new Date(),
-    },
-    {
-      doctorName: "Dr. Mahfuzur Rahman",
-      specialization: "Dentist",
-      qualifications: "BDS, FCPS",
-      experience: 6,
-      consultationFee: 500,
-      hospitalName: "Dental Care Hospital",
-      profileImage: "https://images.unsplash.com/photo-1582750433449-648ed127bb54?w=600&auto=format&fit=crop",
-      availableDays: ["Monday", "Tuesday", "Friday"],
-      availableSlots: ["5:00 PM", "7:00 PM", "8:30 PM"],
-      verificationStatus: "verified",
-      averageRating: 4.4,
-      createdAt: new Date(),
-    },
-    {
-      doctorName: "Dr. Rebecca D'M",
-      specialization: "Gynecologist",
-      qualifications: "MBBS, FCPS",
-      experience: 11,
-      consultationFee: 850,
-      hospitalName: "Women Care Hospital",
-      profileImage: "https://images.unsplash.com/photo-1651008376811-b90baee60c1f?w=600&auto=format&fit=crop",
-      availableDays: ["Sunday", "Wednesday", "Friday"],
-      availableSlots: ["3:00 PM", "5:00 PM", "7:00 PM"],
-      verificationStatus: "verified",
-      averageRating: 4.9,
-      createdAt: new Date(),
-    },
-    {
-      doctorName: "Dr. Rafiqul Islam",
-      specialization: "ENT Specialist",
-      qualifications: "MBBS, MS ENT",
-      experience: 6,
-      consultationFee: 550,
-      hospitalName: "ENT Care Hospital",
-      profileImage: "https://images.unsplash.com/photo-1607990281513-2c110a25bd8c?w=600&auto=format&fit=crop",
-      availableDays: ["Saturday", "Monday", "Thursday"],
-      availableSlots: ["12:00 PM", "2:00 PM", "4:00 PM"],
-      verificationStatus: "verified",
-      averageRating: 4.3,
-      createdAt: new Date(),
-    },
-    {
-      doctorName: "Dr. Salsa Martina",
-      specialization: "Psychiatrist",
-      qualifications: "MBBS, MD Psychiatry",
-      experience: 9,
-      consultationFee: 750,
-      hospitalName: "Mental Health Center",
-      profileImage: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=600&auto=format&fit=crop",
-      availableDays: ["Tuesday", "Wednesday", "Friday"],
-      availableSlots: ["7:00 PM", "8:30 PM", "10:00 PM"],
-      verificationStatus: "verified",
-      averageRating: 4.8,
-      createdAt: new Date(),
-    },
-    {
-      doctorName: "Dr. Abdullah Al Mamun",
-      specialization: "Urologist",
-      qualifications: "MBBS, MS Urology",
-      experience: 13,
-      consultationFee: 950,
-      hospitalName: "MediCare General Hospital",
-      profileImage: "https://images.unsplash.com/photo-1504813184591-01572f98c85f?w=600&auto=format&fit=crop",
-      availableDays: ["Sunday", "Tuesday", "Saturday"],
-      availableSlots: ["8:00 AM", "10:00 AM", "12:00 PM"],
-      verificationStatus: "verified",
-      averageRating: 4.7,
-      createdAt: new Date(),
-    },
-    {
-      doctorName: "Dr. Jenelia Merrie",
-      specialization: "Eye Specialist",
-      qualifications: "MBBS, DO",
-      experience: 7,
-      consultationFee: 600,
-      hospitalName: "Vision Care Hospital",
-      profileImage: "https://images.unsplash.com/photo-1594744803329-e58b31de8bf5?w=600&auto=format&fit=crop",
-      availableDays: ["Monday", "Thursday", "Friday"],
-      availableSlots: ["2:00 PM", "4:00 PM", "6:00 PM"],
-      verificationStatus: "verified",
-      averageRating: 4.6,
-      createdAt: new Date(),
-    },
-    {
-      doctorName: "Dr. Sohanur Rahman",
-      specialization: "Medicine Specialist",
-      qualifications: "MBBS, FCPS Medicine",
-      experience: 15,
-      consultationFee: 900,
-      hospitalName: "MediCare General Hospital",
-      profileImage: "https://images.unsplash.com/photo-1584467735871-8e85353a8413?w=600&auto=format&fit=crop",
-      availableDays: ["Saturday", "Sunday", "Wednesday"],
-      availableSlots: ["9:30 AM", "11:30 AM", "1:30 PM"],
-      verificationStatus: "verified",
-      averageRating: 4.9,
-      createdAt: new Date(),
-    },
-  ];
-
-  const result = await doctorsCollection.insertMany(doctors);
-
-  res.send({
-    message: "12 doctors inserted successfully",
-    insertedCount: result.insertedCount,
-  });
-});
-
 /* APPOINTMENTS */
 app.post("/appointments", async (req, res) => {
-  const appointment = req.body;
+  try {
+    const appointment = req.body;
 
-  const newAppointment = {
-    ...appointment,
-    appointmentStatus: "pending",
-    paymentStatus: "unpaid",
-    createdAt: new Date(),
-  };
+    const newAppointment = {
+      ...appointment,
+      appointmentStatus: "pending",
+      paymentStatus: "unpaid",
+      createdAt: new Date(),
+    };
 
-  const result = await appointmentsCollection.insertOne(newAppointment);
-  res.send(result);
+    const result = await appointmentsCollection.insertOne(newAppointment);
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to create appointment" });
+  }
 });
 
-app.get("/appointments", async (req, res) => {
+app.get("/appointments", verifyJWT,async (req, res) => {
   const result = await appointmentsCollection
     .find()
     .sort({ createdAt: -1 })
@@ -402,13 +277,18 @@ app.get("/appointments/:email", async (req, res) => {
 
   res.send(result);
 });
-app.patch("/appointments/:id", async (req, res) => {
-  const result = await appointmentsCollection.updateOne(
-    { _id: new ObjectId(req.params.id) },
-    { $set: req.body }
-  );
 
-  res.send(result);
+app.patch("/appointments/:id", async (req, res) => {
+  try {
+    const result = await appointmentsCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: req.body }
+    );
+
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to update appointment" });
+  }
 });
 
 app.delete("/appointments/:id", async (req, res) => {
@@ -418,6 +298,8 @@ app.delete("/appointments/:id", async (req, res) => {
 
   res.send(result);
 });
+
+/* REVIEWS */
 app.get("/reviews/:email", async (req, res) => {
   const result = await reviewsCollection
     .find({ patientEmail: req.params.email })
@@ -455,19 +337,76 @@ app.delete("/reviews/:id", async (req, res) => {
 
   res.send(result);
 });
+
+/* PRESCRIPTIONS */
+app.post("/prescriptions", async (req, res) => {
+  try {
+    const prescription = req.body;
+
+    const newPrescription = {
+      ...prescription,
+      createdAt: new Date(),
+    };
+
+    const result = await prescriptionsCollection.insertOne(newPrescription);
+
+    if (prescription.appointmentId) {
+      await appointmentsCollection.updateOne(
+        { _id: new ObjectId(prescription.appointmentId) },
+        {
+          $set: {
+            appointmentStatus: "completed",
+          },
+        }
+      );
+    }
+
+    res.send({
+      message: "Prescription created and appointment completed",
+      insertedId: result.insertedId,
+    });
+  } catch (error) {
+    console.log("Prescription create error:", error);
+    res.status(500).send({ message: "Failed to create prescription" });
+  }
+});
+
+app.get("/prescriptions/:email", async (req, res) => {
+  const result = await prescriptionsCollection
+    .find({ patientEmail: req.params.email })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  res.send(result);
+});
+
+/* PAYMENTS */
 app.post("/payments", async (req, res) => {
   const payment = req.body;
 
   const newPayment = {
     ...payment,
+    paymentStatus: "paid",
     paymentDate: new Date(),
   };
 
   const result = await paymentsCollection.insertOne(newPayment);
+
+  if (payment.appointmentId) {
+    await appointmentsCollection.updateOne(
+      { _id: new ObjectId(payment.appointmentId) },
+      {
+        $set: {
+          paymentStatus: "paid",
+        },
+      }
+    );
+  }
+
   res.send(result);
 });
 
-app.get("/payments", async (req, res) => {
+app.get("/payments", verifyJWT,async (req, res) => {
   const result = await paymentsCollection
     .find()
     .sort({ paymentDate: -1 })
@@ -484,32 +423,7 @@ app.get("/payments/:email", async (req, res) => {
 
   res.send(result);
 });
-/* PRESCRIPTIONS */
-const prescriptionsCollection = database.collection("prescriptions");
 
-app.post("/prescriptions", async (req, res) => {
-  const prescription = req.body;
-
-  const newPrescription = {
-    ...prescription,
-    createdAt: new Date(),
-  };
-
-  const result = await prescriptionsCollection.insertOne(newPrescription);
-  res.send(result);
-});
-
-app.get("/prescriptions/:email", async (req, res) => {
-  const email = req.params.email;
-
-  const result = await prescriptionsCollection
-    .find({ patientEmail: email })
-    .sort({ createdAt: -1 })
-    .toArray();
-
-  res.send(result);
-});
-/* PAYMENTS */
 app.post("/create-payment-session", async (req, res) => {
   try {
     const { appointmentId } = req.body;
@@ -531,7 +445,6 @@ app.post("/create-payment-session", async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
-
       line_items: [
         {
           price_data: {
@@ -544,7 +457,6 @@ app.post("/create-payment-session", async (req, res) => {
           quantity: 1,
         },
       ],
-
       success_url: `${process.env.CLIENT_URL}/payment-success?appointmentId=${appointmentId}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.CLIENT_URL}/dashboard`,
     });
@@ -578,30 +490,27 @@ app.post("/confirm-payment", async (req, res) => {
       transactionId: session.payment_intent,
     });
 
-    if (existingPayment) {
-      return res.send({ message: "Payment already saved" });
+    if (!existingPayment) {
+      const paymentInfo = {
+        appointmentId,
+        patientEmail: appointment.patientEmail,
+        patientName: appointment.patientName,
+        doctorEmail: appointment.doctorEmail || "",
+        doctorName: appointment.doctorName,
+        amount: Number(appointment.consultationFee || appointment.fee || 0),
+        transactionId: session.payment_intent,
+        paymentStatus: "paid",
+        paymentDate: new Date(),
+      };
+
+      await paymentsCollection.insertOne(paymentInfo);
     }
-
-    const paymentInfo = {
-      appointmentId,
-      patientEmail: appointment.patientEmail,
-      patientName: appointment.patientName,
-      doctorEmail: appointment.doctorEmail || "",
-      doctorName: appointment.doctorName,
-      amount: Number(appointment.consultationFee || appointment.fee || 0),
-      transactionId: session.payment_intent,
-      paymentStatus: "paid",
-      paymentDate: new Date(),
-    };
-
-    await paymentsCollection.insertOne(paymentInfo);
 
     await appointmentsCollection.updateOne(
       { _id: new ObjectId(appointmentId) },
       {
         $set: {
           paymentStatus: "paid",
-          appointmentStatus: "pending",
         },
       }
     );
@@ -616,39 +525,17 @@ app.post("/confirm-payment", async (req, res) => {
   }
 });
 
-app.get("/payments", async (req, res) => {
-  const result = await paymentsCollection
-    .find()
-    .sort({ paymentDate: -1 })
-    .toArray();
-
-  res.send(result);
-});
-
-app.get("/payments/:email", async (req, res) => {
-  const result = await paymentsCollection
-    .find({ patientEmail: req.params.email })
-    .sort({ paymentDate: -1 })
-    .toArray();
-
-  res.send(result);
-});
-app.get("/payments", async (req, res) => {
-  const result = await paymentsCollection
-    .find()
-    .sort({ paymentDate: -1 })
-    .toArray();
-
-  res.send(result);
-});
-
 /* DASHBOARD STATS */
-app.get("/dashboard-stats", async (req, res) => {
+app.get("/dashboard-stats",verifyJWT, async (req, res) => {
   const totalUsers = await usersCollection.countDocuments();
   const totalDoctors = await doctorsCollection.countDocuments();
-  const totalPatients = await usersCollection.countDocuments({ role: "patient" });
+  const totalPatients = await usersCollection.countDocuments({
+    role: "patient",
+  });
   const totalAdmins = await usersCollection.countDocuments({ role: "admin" });
   const totalAppointments = await appointmentsCollection.countDocuments();
+  const totalPayments = await paymentsCollection.countDocuments();
+  const totalReviews = await reviewsCollection.countDocuments();
 
   res.send({
     totalUsers,
@@ -657,6 +544,7 @@ app.get("/dashboard-stats", async (req, res) => {
     totalAdmins,
     totalAppointments,
     totalPayments,
+    totalReviews,
   });
 });
 
