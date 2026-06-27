@@ -32,6 +32,7 @@ export const auth = betterAuth({
     "http://localhost:5177",
     "http://localhost:5178",
     "http://localhost:5179",
+    process.env.CLIENT_URL,
   ],
 
   emailAndPassword: {
